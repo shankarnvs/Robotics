@@ -1,0 +1,9 @@
+<library path="continuum_rviz_plugin">
+  <class name="continuum_rviz_plugin/ContinuumPanel"
+         type="ContinuumPanel"
+         base_class_type="rviz_common::Panel">
+    <description>
+      Continuum robot control panel
+    </description>
+  </class>
+</library>
