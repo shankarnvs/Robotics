@@ -7,4 +7,4 @@
 - RoS
 - Python
 - C++
-### To build the project use _colcon build --merge-install_
+- To build the project use _colcon build --merge-install_
