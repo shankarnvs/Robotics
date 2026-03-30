@@ -1,11 +1,10 @@
-<?xml version="1.0"?>
 <package format="3">
   <name>continuum_msgs</name>
   <version>0.0.0</version>
   <description>Continuum robot messages</description>
 
-  <maintainer email="user@todo.todo">user</maintainer>
-  <license>TODO</license>
+  <maintainer email="you@todo.com">you</maintainer>
+  <license>MIT</license>
 
   <buildtool_depend>ament_cmake</buildtool_depend>
   <buildtool_depend>rosidl_default_generators</buildtool_depend>
@@ -13,5 +12,4 @@
   <exec_depend>rosidl_default_runtime</exec_depend>
 
   <member_of_group>rosidl_interface_packages</member_of_group>
-
 </package>

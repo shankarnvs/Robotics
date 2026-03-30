@@ -1,18 +1,46 @@
 #include "continuum_rviz_plugin/continuum_panel.hpp"
 
 #include <QVBoxLayout>
-#include <QFormLayout>
+#include <QHBoxLayout>
 #include <QLabel>
 
 #include <pluginlib/class_list_macros.hpp>
+
 #include <Eigen/Dense>
+#include <cmath>
+#include <chrono>
+
+namespace
+{
+Eigen::Matrix4d computeTransform(double length, double angle_rad)
+{
+  Eigen::Matrix4d T = Eigen::Matrix4d::Identity();
+
+  if (std::abs(angle_rad) < 1e-6)
+  {
+    T(2, 3) = length;
+    return T;
+  }
+
+  double R = length / angle_rad;
+
+  T(0, 0) = std::cos(angle_rad);
+  T(0, 2) = std::sin(angle_rad);
+  T(2, 0) = -std::sin(angle_rad);
+  T(2, 2) = std::cos(angle_rad);
+
+  T(0, 3) = R * (1.0 - std::cos(angle_rad));
+  T(2, 3) = R * std::sin(angle_rad);
+
+  return T;
+}
+}
 
 ContinuumPanel::ContinuumPanel(QWidget * parent)
 : rviz_common::Panel(parent)
 {
   QVBoxLayout* layout = new QVBoxLayout;
 
-  // 🔥 Initialize ROS (safe inside RViz plugin)
   if (!rclcpp::ok())
   {
     rclcpp::init(0, nullptr);
@@ -23,7 +51,6 @@ ContinuumPanel::ContinuumPanel(QWidget * parent)
   pub_ = node_->create_publisher<continuum_msgs::msg::RobotState>(
     "/continuum/state", 10);
 
-  // 🔥 Spin node periodically
   timer_ = node_->create_wall_timer(
     std::chrono::milliseconds(50),
     [this]() {
@@ -34,15 +61,19 @@ ContinuumPanel::ContinuumPanel(QWidget * parent)
   link_count_->setMinimum(1);
   link_count_->setMaximum(20);
 
-  QPushButton* gen_btn = new QPushButton("Generate Links");
-  connect(gen_btn, SIGNAL(clicked()), this, SLOT(generateLinks()));
+  QPushButton* btn = new QPushButton("Generate Links");
+  connect(btn, SIGNAL(clicked()), this, SLOT(generateLinks()));
 
   tabs_ = new QTabWidget;
 
-  layout->addWidget(new QLabel("Number of Links"));
+  matrix_display_ = new QTextEdit;
+  matrix_display_->setReadOnly(true);
+
   layout->addWidget(link_count_);
-  layout->addWidget(gen_btn);
+  layout->addWidget(btn);
   layout->addWidget(tabs_);
+  layout->addWidget(new QLabel("End Effector Transform"));
+  layout->addWidget(matrix_display_);
 
   setLayout(layout);
 }
@@ -63,8 +94,7 @@ void ContinuumPanel::generateLinks()
 
     LinkWidgets lw;
 
-    // Link length
-    lw.length = new QLineEdit("10.0");
+    lw.length = new QLineEdit("1.0");
     layout->addWidget(new QLabel("Length"));
     layout->addWidget(lw.length);
 
@@ -73,85 +103,86 @@ void ContinuumPanel::generateLinks()
     layout->addWidget(lw.enable_servo1);
 
     lw.servo1.angle_slider = new QSlider(Qt::Horizontal);
-    lw.servo1.angle->setRange(-90, 90);
-	lw.servo1.angle_text = new QLineEdit("0");
+    lw.servo1.angle_slider->setRange(-180, 180);
 
-    lw.servo1.radius = new QLineEdit("5");
+    lw.servo1.angle_text = new QLineEdit("0");
+    lw.servo1.radius = new QLineEdit("0.02");
 
-    lw.servo1.affects = new QComboBox;
+    lw.servo1.target_link = new QComboBox;
     for (int j = i + 1; j < n; j++)
-      lw.servo1.affects->addItem(QString::number(j));
+      lw.servo1.target_link->addItem(QString::number(j));
 
-    layout->addWidget(new QLabel("Servo1 Angle"));
-    layout->addWidget(lw.servo1.angle_slider);
-	layout->addWidget(lw.servo1.angle_text);
-    layout->addWidget(new QLabel("Radius"));
+    QHBoxLayout* s1 = new QHBoxLayout;
+    s1->addWidget(lw.servo1.angle_slider);
+    s1->addWidget(lw.servo1.angle_text);
+
+    layout->addWidget(new QLabel("Servo 1 Angle"));
+    layout->addLayout(s1);
     layout->addWidget(lw.servo1.radius);
-    layout->addWidget(new QLabel("Affects Link"));
-    layout->addWidget(lw.servo1.affects);
+    layout->addWidget(lw.servo1.target_link);
+
+    connect(lw.servo1.angle_slider, &QSlider::valueChanged,
+            [this, &lw](int val){
+              lw.servo1.angle_text->setText(QString::number(val));
+              publishState();
+            });
+
+    connect(lw.servo1.angle_text, &QLineEdit::editingFinished,
+            [this, &lw](){
+              lw.servo1.angle_slider->setValue(
+                lw.servo1.angle_text->text().toInt());
+              publishState();
+            });
 
     // ===== Servo 2 =====
     lw.enable_servo2 = new QCheckBox("Enable Servo 2");
     layout->addWidget(lw.enable_servo2);
 
     lw.servo2.angle_slider = new QSlider(Qt::Horizontal);
-    lw.servo2.angle->setRange(-180, 180);
-	lw.servo2.angle_text = new QLineEdit("0");
+    lw.servo2.angle_slider->setRange(-180, 180);
 
-    lw.servo2.radius = new QLineEdit("5");
+    lw.servo2.angle_text = new QLineEdit("0");
+    lw.servo2.radius = new QLineEdit("0.02");
 
-    lw.servo2.affects = new QComboBox;
+    lw.servo2.target_link = new QComboBox;
     for (int j = i + 1; j < n; j++)
-      lw.servo2.affects->addItem(QString::number(j));
+      lw.servo2.target_link->addItem(QString::number(j));
 
-    layout->addWidget(new QLabel("Servo2 Angle"));
-    layout->addWidget(lw.servo2.angle_slider);
-	layout->addWidget(lw.servo2.angle_text);
-    layout->addWidget(new QLabel("Radius"));
+    QHBoxLayout* s2 = new QHBoxLayout;
+    s2->addWidget(lw.servo2.angle_slider);
+    s2->addWidget(lw.servo2.angle_text);
+
+    layout->addWidget(new QLabel("Servo 2 Angle"));
+    layout->addLayout(s2);
     layout->addWidget(lw.servo2.radius);
-    layout->addWidget(new QLabel("Affects Link"));
-    layout->addWidget(lw.servo2.affects);
+    layout->addWidget(lw.servo2.target_link);
 
-    // 🔥 REAL-TIME PUBLISH CONNECTIONS
-	connect(lw.servo1.angle_slider, &QSlider::valueChanged,
-        [=](int val){
-            lw.servo1.angle_text->setText(QString::number(val));
-            publishState();
-        });
-	
-	connect(lw.servo1.angle_text, &QLineEdit::editingFinished,
-        [=](){
-            int val = lw.servo1.angle_text->text().toInt();
-            lw.servo1.angle_slider->setValue(val);
-            publishState();
-        });
-		
-	connect(lw.servo2.angle_slider, &QSlider::valueChanged,
-        [=](int val){
-            lw.servo1.angle_text->setText(QString::number(val));
-            publishState();
-        });
-	
-	connect(lw.servo2.angle_text, &QLineEdit::editingFinished,
-        [=](){
-            int val = lw.servo1.angle_text->text().toInt();
-            lw.servo1.angle_slider->setValue(val);
-            publishState();
-        });
-		
+    connect(lw.servo2.angle_slider, &QSlider::valueChanged,
+            [this, &lw](int val){
+              lw.servo2.angle_text->setText(QString::number(val));
+              publishState();
+            });
+
+    connect(lw.servo2.angle_text, &QLineEdit::editingFinished,
+            [this, &lw](){
+              lw.servo2.angle_slider->setValue(
+                lw.servo2.angle_text->text().toInt());
+              publishState();
+            });
+
     tab->setLayout(layout);
     tabs_->addTab(tab, QString("Link %1").arg(i));
 
     links_ui_.push_back(lw);
   }
 
-  // 🔥 Publish initial state
   publishState();
 }
 
 void ContinuumPanel::publishState()
 {
   continuum_msgs::msg::RobotState msg;
+  Eigen::Matrix4d T_total = Eigen::Matrix4d::Identity();
 
   for (size_t i = 0; i < links_ui_.size(); i++)
   {
@@ -162,18 +193,21 @@ void ContinuumPanel::publishState()
     link.length = lw.length->text().toDouble();
     msg.links.push_back(link);
 
+    double angle = 0.0;
+
     if (lw.enable_servo1->isChecked())
     {
       continuum_msgs::msg::Servo s;
       s.id = i * 2;
       s.parent_link = i;
-      s.angle = lw.servo1.angle->value() * M_PI / 180.0;
-      s.horn_radius = lw.servo1.radius->text().toDouble();
+      s.angle = lw.servo1.angle_slider->value() * M_PI / 180.0;
 
-      if (lw.servo1.affects->count() > 0)
-        s.affects_links.push_back(lw.servo1.affects->currentText().toInt());
+      if (lw.servo1.target_link->count() > 0)
+        s.affects_links.push_back(
+          lw.servo1.target_link->currentText().toInt());
 
       msg.servos.push_back(s);
+      angle += s.angle;
     }
 
     if (lw.enable_servo2->isChecked())
@@ -181,17 +215,29 @@ void ContinuumPanel::publishState()
       continuum_msgs::msg::Servo s;
       s.id = i * 2 + 1;
       s.parent_link = i;
-      s.angle = lw.servo2.angle->value() * M_PI / 180.0;
-      s.horn_radius = lw.servo2.radius->text().toDouble();
+      s.angle = lw.servo2.angle_slider->value() * M_PI / 180.0;
 
-      if (lw.servo2.affects->count() > 0)
-        s.affects_links.push_back(lw.servo2.affects->currentText().toInt());
+      if (lw.servo2.target_link->count() > 0)
+        s.affects_links.push_back(
+          lw.servo2.target_link->currentText().toInt());
 
       msg.servos.push_back(s);
+      angle += s.angle;
     }
+
+    T_total = T_total * computeTransform(link.length, angle);
   }
 
-  RCLCPP_INFO(node_->get_logger(), "Publishing state...");
+  QString mat;
+  for (int i = 0; i < 4; i++)
+  {
+    for (int j = 0; j < 4; j++)
+      mat += QString::number(T_total(i,j),'f',3)+" ";
+    mat += "\n";
+  }
+
+  matrix_display_->setPlainText(mat);
+
   pub_->publish(msg);
 }
 
