@@ -47,6 +47,9 @@ Q_OBJECT
 public:
   explicit ContinuumPanel(QWidget * parent = nullptr);
   virtual ~ContinuumPanel();
+  
+protected:   
+  void onInitialize() override;
 
 private Q_SLOTS:
   void generateLinks();
@@ -63,7 +66,7 @@ private:
   // ROS
   rclcpp::Node::SharedPtr node_;
   rclcpp::Publisher<continuum_msgs::msg::RobotState>::SharedPtr pub_;
-  rclcpp::TimerBase::SharedPtr timer_;
+  //rclcpp::TimerBase::SharedPtr timer_;
 };
 
 #endif

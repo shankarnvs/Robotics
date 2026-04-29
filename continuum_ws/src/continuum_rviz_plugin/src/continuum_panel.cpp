@@ -1,5 +1,8 @@
 #include "continuum_rviz_plugin/continuum_panel.hpp"
 
+#include <rviz_common/display_context.hpp>
+#include <rviz_common/ros_integration/ros_node_abstraction_iface.hpp>
+
 #include <QVBoxLayout>
 #include <QHBoxLayout>
 #include <QLabel>
@@ -8,7 +11,6 @@
 
 #include <Eigen/Dense>
 #include <cmath>
-#include <chrono>
 
 namespace
 {
@@ -41,25 +43,10 @@ ContinuumPanel::ContinuumPanel(QWidget * parent)
 {
   QVBoxLayout* layout = new QVBoxLayout;
 
-  if (!rclcpp::ok())
-  {
-    rclcpp::init(0, nullptr);
-  }
-
-  node_ = std::make_shared<rclcpp::Node>("continuum_panel_node");
-
-  pub_ = node_->create_publisher<continuum_msgs::msg::RobotState>(
-    "/continuum/state", 10);
-
-  timer_ = node_->create_wall_timer(
-    std::chrono::milliseconds(50),
-    [this]() {
-      rclcpp::spin_some(node_);
-    });
-
   link_count_ = new QSpinBox;
   link_count_->setMinimum(1);
   link_count_->setMaximum(20);
+  link_count_->setValue(2);
 
   QPushButton* btn = new QPushButton("Generate Links");
   connect(btn, SIGNAL(clicked()), this, SLOT(generateLinks()));
@@ -80,6 +67,28 @@ ContinuumPanel::ContinuumPanel(QWidget * parent)
 
 ContinuumPanel::~ContinuumPanel() {}
 
+void ContinuumPanel::onInitialize()
+{
+  auto context = getDisplayContext();
+  if (!context)
+  {
+    RCLCPP_ERROR(rclcpp::get_logger("continuum_panel"), "No display context!");
+    return;
+  }
+
+  auto ros_node_abstraction = context->getRosNodeAbstraction().lock();
+  if (!ros_node_abstraction)
+  {
+    RCLCPP_ERROR(rclcpp::get_logger("continuum_panel"), "Failed to get ROS node!");
+    return;
+  }
+
+  node_ = ros_node_abstraction->get_raw_node();
+
+  pub_ = node_->create_publisher<continuum_msgs::msg::RobotState>(
+    "/continuum/state", 10);
+}
+
 void ContinuumPanel::generateLinks()
 {
   tabs_->clear();
@@ -92,8 +101,11 @@ void ContinuumPanel::generateLinks()
     QWidget* tab = new QWidget;
     QVBoxLayout* layout = new QVBoxLayout;
 
-    LinkWidgets lw;
+    // 🔥 Create and store FIRST
+    links_ui_.emplace_back();
+    auto& lw = links_ui_.back();
 
+    // ===== Link =====
     lw.length = new QLineEdit("1.0");
     layout->addWidget(new QLabel("Length"));
     layout->addWidget(lw.length);
@@ -101,6 +113,9 @@ void ContinuumPanel::generateLinks()
     // ===== Servo 1 =====
     lw.enable_servo1 = new QCheckBox("Enable Servo 1");
     layout->addWidget(lw.enable_servo1);
+
+    connect(lw.enable_servo1, &QCheckBox::stateChanged,
+            this, &ContinuumPanel::publishState);
 
     lw.servo1.angle_slider = new QSlider(Qt::Horizontal);
     lw.servo1.angle_slider->setRange(-180, 180);
@@ -118,17 +133,21 @@ void ContinuumPanel::generateLinks()
 
     layout->addWidget(new QLabel("Servo 1 Angle"));
     layout->addLayout(s1);
+    layout->addWidget(new QLabel("Servo 1 Radius"));
     layout->addWidget(lw.servo1.radius);
+    layout->addWidget(new QLabel("Servo 1 Target Link"));
     layout->addWidget(lw.servo1.target_link);
 
     connect(lw.servo1.angle_slider, &QSlider::valueChanged,
-            [this, &lw](int val){
+            [this, i](int val){
+              auto& lw = links_ui_[i];
               lw.servo1.angle_text->setText(QString::number(val));
               publishState();
             });
 
     connect(lw.servo1.angle_text, &QLineEdit::editingFinished,
-            [this, &lw](){
+            [this, i]() {
+              auto& lw = links_ui_[i];
               lw.servo1.angle_slider->setValue(
                 lw.servo1.angle_text->text().toInt());
               publishState();
@@ -137,6 +156,9 @@ void ContinuumPanel::generateLinks()
     // ===== Servo 2 =====
     lw.enable_servo2 = new QCheckBox("Enable Servo 2");
     layout->addWidget(lw.enable_servo2);
+
+    connect(lw.enable_servo2, &QCheckBox::stateChanged,
+            this, &ContinuumPanel::publishState);
 
     lw.servo2.angle_slider = new QSlider(Qt::Horizontal);
     lw.servo2.angle_slider->setRange(-180, 180);
@@ -154,17 +176,21 @@ void ContinuumPanel::generateLinks()
 
     layout->addWidget(new QLabel("Servo 2 Angle"));
     layout->addLayout(s2);
+    layout->addWidget(new QLabel("Servo 2 Radius"));
     layout->addWidget(lw.servo2.radius);
+    layout->addWidget(new QLabel("Servo 2 Target Link"));
     layout->addWidget(lw.servo2.target_link);
 
     connect(lw.servo2.angle_slider, &QSlider::valueChanged,
-            [this, &lw](int val){
+            [this, i](int val){
+              auto& lw = links_ui_[i];
               lw.servo2.angle_text->setText(QString::number(val));
               publishState();
             });
 
     connect(lw.servo2.angle_text, &QLineEdit::editingFinished,
-            [this, &lw](){
+            [this, i]() {
+              auto& lw = links_ui_[i];
               lw.servo2.angle_slider->setValue(
                 lw.servo2.angle_text->text().toInt());
               publishState();
@@ -172,8 +198,6 @@ void ContinuumPanel::generateLinks()
 
     tab->setLayout(layout);
     tabs_->addTab(tab, QString("Link %1").arg(i));
-
-    links_ui_.push_back(lw);
   }
 
   publishState();
@@ -181,6 +205,12 @@ void ContinuumPanel::generateLinks()
 
 void ContinuumPanel::publishState()
 {
+  if (!pub_)
+  {
+    RCLCPP_WARN(rclcpp::get_logger("continuum_panel"), "Publisher not ready yet");
+    return;
+  }
+
   continuum_msgs::msg::RobotState msg;
   Eigen::Matrix4d T_total = Eigen::Matrix4d::Identity();
 

@@ -17,6 +17,10 @@ add_library(${PROJECT_NAME} SHARED
   include/continuum_rviz_plugin/continuum_panel.hpp
 )
 
+target_include_directories(${PROJECT_NAME} PUBLIC
+  include
+)
+
 target_link_libraries(${PROJECT_NAME}
   Qt5::Widgets
   Eigen3::Eigen

@@ -1,5 +1,10 @@
 <package format="3">
   <name>continuum_rviz_plugin</name>
+  <version>0.0.0</version>
+  <description>RViz panel for continuum robot</description>
+
+  <maintainer email="you@todo.com">you</maintainer>
+  <license>MIT</license>
 
   <buildtool_depend>ament_cmake</buildtool_depend>
 
