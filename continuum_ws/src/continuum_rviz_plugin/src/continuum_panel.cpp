@@ -214,6 +214,98 @@ void ContinuumPanel::publishState()
   continuum_msgs::msg::RobotState msg;
   Eigen::Matrix4d T_total = Eigen::Matrix4d::Identity();
 
+  int num_links = links_ui_.size();
+
+  for (size_t i = 0; i < links_ui_.size(); i++)
+  {
+    auto& lw = links_ui_[i];
+
+    // -----------------------------
+    // Link
+    // -----------------------------
+    continuum_msgs::msg::Link link;
+    link.id = i;
+    link.length = lw.length->text().toDouble();
+    msg.links.push_back(link);
+
+    // -----------------------------
+    // Servo 1 → bend_x
+    // -----------------------------
+    if (lw.enable_servo1->isChecked())
+    {
+      continuum_msgs::msg::Servo s;
+
+      s.id = i * 2;
+      s.parent_link = i;
+
+      double val = lw.servo1.angle_slider->value() * M_PI / 180.0;
+
+      s.angle = val;        // legacy
+      s.bend_x = val;       // 🔥 KEY
+      s.bend_y = 0.0;
+
+      s.horn_radius = lw.servo1.radius->text().toDouble();
+
+      // 🔥 FIX: affect ALL links from i → target
+      if (lw.servo1.target_link->count() > 0)
+      {
+        int target = lw.servo1.target_link->currentText().toInt();
+
+        for (int k = i; k <= target; k++)
+          s.affects_links.push_back(k);
+      }
+
+      msg.servos.push_back(s);
+    }
+
+    // -----------------------------
+    // Servo 2 → bend_y
+    // -----------------------------
+    if (lw.enable_servo2->isChecked())
+    {
+      continuum_msgs::msg::Servo s;
+
+      s.id = i * 2 + 1;
+      s.parent_link = i;
+
+      double val = lw.servo2.angle_slider->value() * M_PI / 180.0;
+
+      s.angle = val;        // legacy
+      s.bend_x = 0.0;
+      s.bend_y = val;       // 🔥 KEY
+
+      s.horn_radius = lw.servo2.radius->text().toDouble();
+
+      // 🔥 FIX: affect ALL links from i → target
+      if (lw.servo2.target_link->count() > 0)
+      {
+        int target = lw.servo2.target_link->currentText().toInt();
+
+        for (int k = i; k <= target; k++)
+          s.affects_links.push_back(k);
+      }
+
+      msg.servos.push_back(s);
+    }
+
+    // (Optional: keep your transform debug)
+  }
+
+  pub_->publish(msg);
+}
+
+/*
+void ContinuumPanel::publishState()
+{
+  if (!pub_)
+  {
+    RCLCPP_WARN(rclcpp::get_logger("continuum_panel"), "Publisher not ready yet");
+    return;
+  }
+
+  continuum_msgs::msg::RobotState msg;
+  Eigen::Matrix4d T_total = Eigen::Matrix4d::Identity();
+
   for (size_t i = 0; i < links_ui_.size(); i++)
   {
     auto& lw = links_ui_[i];
@@ -270,5 +362,5 @@ void ContinuumPanel::publishState()
 
   pub_->publish(msg);
 }
-
+*/
 PLUGINLIB_EXPORT_CLASS(ContinuumPanel, rviz_common::Panel)
