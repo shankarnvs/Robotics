@@ -24,7 +24,8 @@ setup(
 
     entry_points={
         'console_scripts': [
-            'control_node = continuum_control.control_node:main'
+            'control_node = continuum_control.control_node:main',
+            'dynamic_description_node = continuum_control.dynamic_description_node:main',
         ],
     },
 )

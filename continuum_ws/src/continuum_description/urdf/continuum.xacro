@@ -1,0 +1,113 @@
+<?xml version="1.0"?>
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro" name="continuum">
+
+  <!-- ========================= -->
+  <!-- Arguments -->
+  <!-- ========================= -->
+  <xacro:arg name="num_links" default="5"/>
+  <xacro:arg name="link_length" default="1.0"/>
+  <xacro:arg name="link_radius" default="0.1"/>
+  <xacro:arg name="sphere_radius" default="0.15"/>
+
+  <!-- Convert args to properties -->
+  <xacro:property name="N" value="$(arg num_links)"/>
+  <xacro:property name="L" value="$(arg link_length)"/>
+  <xacro:property name="R" value="$(arg link_radius)"/>
+  <xacro:property name="Rs" value="$(arg sphere_radius)"/>
+
+  <!-- ========================= -->
+  <!-- WORLD (anchor frame) -->
+  <!-- ========================= -->
+  <link name="world"/>
+
+  <!-- ========================= -->
+  <!-- LINK MACRO -->
+  <!-- ========================= -->
+  <xacro:macro name="link_block" params="name L R Rs">
+
+    <link name="${name}">
+
+      <!-- cylinder -->
+      <visual>
+        <geometry>
+          <cylinder length="${L}" radius="${R}"/>
+        </geometry>
+        <origin xyz="0 0 ${L/2}" rpy="0 0 0"/>
+      </visual>
+
+      <!-- bottom sphere (joint center) -->
+      <visual>
+        <geometry>
+          <sphere radius="${Rs}"/>
+        </geometry>
+        <origin xyz="0 0 0"/>
+      </visual>
+
+      <!-- top sphere -->
+      <visual>
+        <geometry>
+          <sphere radius="${Rs}"/>
+        </geometry>
+        <origin xyz="0 0 ${L}"/>
+      </visual>
+
+    </link>
+
+  </xacro:macro>
+
+  <!-- ========================= -->
+  <!-- BASE LINK -->
+  <!-- ========================= -->
+  <xacro:link_block name="link_0" L="${L}" R="${R}" Rs="${Rs}"/>
+
+  <!-- world → link_0 -->
+  <joint name="world_to_link_0" type="fixed">
+    <parent link="world"/>
+    <child link="link_0"/>
+    <origin xyz="0 0 0" rpy="0 0 0"/>
+  </joint>
+
+  <!-- ========================= -->
+  <!-- CHAIN MACRO -->
+  <!-- ========================= -->
+  <xacro:macro name="chain" params="i">
+
+    <xacro:if value="${i > 0}">
+
+      <!-- create link -->
+      <xacro:link_block name="link_${i}" L="${L}" R="${R}" Rs="${Rs}"/>
+
+      <!-- joint X -->
+      <joint name="joint_${i}_x" type="revolute">
+        <parent link="link_${i-1}"/>
+        <child link="link_${i}_mid"/>
+        <origin xyz="0 0 ${L}" rpy="0 0 0"/>
+        <axis xyz="1 0 0"/>
+        <limit lower="-3.14" upper="3.14" effort="10" velocity="2"/>
+      </joint>
+
+      <!-- intermediate link -->
+      <link name="link_${i}_mid"/>
+
+      <!-- joint Y -->
+      <joint name="joint_${i}_y" type="revolute">
+        <parent link="link_${i}_mid"/>
+        <child link="link_${i}"/>
+        <origin xyz="0 0 0" rpy="0 0 0"/>
+        <axis xyz="0 1 0"/>
+        <limit lower="-3.14" upper="3.14" effort="10" velocity="2"/>
+      </joint>
+
+      <!-- recurse -->
+      <xacro:chain i="${i-1}"/>
+
+    </xacro:if>
+
+  </xacro:macro>
+
+  <!-- ========================= -->
+  <!-- BUILD CHAIN -->
+  <!-- ========================= -->
+  <xacro:chain i="${N - 1}"/>
+
+</robot>

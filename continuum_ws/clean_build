@@ -1,0 +1,3 @@
+sudo rm -rf build install log
+tree -L 1
+colcon build --merge-install
